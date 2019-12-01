@@ -12,8 +12,7 @@ def part_2(vals):
     for mass in vals:
         while mass > 0:
             mass = mass//3 - 2
-            if mass > 0:
-                total += mass
+            total += max(0, mass)
     return total
 
 
