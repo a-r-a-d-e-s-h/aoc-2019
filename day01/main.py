@@ -1,5 +1,5 @@
 def parse_input(filename):
-    return [int(item) for item in open(filename)]
+    return map(int, open(filename))
 
 
 def part_1(vals):
