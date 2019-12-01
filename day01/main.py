@@ -15,8 +15,7 @@ def part_2(vals):
     return total
 
 
-if __name__ == "__main__":
-    puz_input = parse_input('input.txt')
+puz_input = parse_input('input.txt')
 
-    print(part_1(puz_input))
-    print(part_2(puz_input))
+print(part_1(puz_input))
+print(part_2(puz_input))
