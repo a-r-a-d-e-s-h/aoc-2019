@@ -1,5 +1,5 @@
 def parse_input(filename):
-    text = open(filename, 'r').read()
+    text = open(filename).read()
     return list(map(int, text.splitlines()))
 
 
