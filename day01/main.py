@@ -1,15 +1,24 @@
-import re
+def parse_input(filename):
+    text = open(filename, 'r').read()
+    return list(map(int, text.splitlines()))
 
-def get_nums(lines):
-    return [list(map(int, re.findall('-?\d+', line))) for line in lines]
 
-def solve(text):
-    lines = text.splitlines()
-    nums = get_nums(lines)
-    for item in nums:
-        print(item)
+def part_1(vals):
+    return sum(mass//3 - 2 for mass in vals)
+
+
+def part_2(vals):
+    total = 0
+    for mass in vals:
+        while mass > 0:
+            mass = mass//3 - 2
+            if mass > 0:
+                total += mass
+    return total
+
 
 if __name__ == "__main__":
-    with open('input.txt', 'r') as f:
-        solve(f.read())
+    puz_input = parse_input('input.txt')
 
+    print(part_1(puz_input))
+    print(part_2(puz_input))
