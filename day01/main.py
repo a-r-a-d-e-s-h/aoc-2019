@@ -1,6 +1,5 @@
 def parse_input(filename):
-    text = open(filename).read()
-    return list(map(int, text.splitlines()))
+    return [int(item) for item in open(filename)]
 
 
 def part_1(vals):
