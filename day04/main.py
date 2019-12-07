@@ -1,40 +1,26 @@
-from collections import defaultdict
-
-def has_repeat(nums):
-    length = len(nums) - 1
-    for i in range(length):
-        if nums[i] == nums[i+1]:
-            return True
-    return False
-
-def condition_2(nums):
-    groups = defaultdict(int)
-    for digit in nums:
-        groups[digit] += 1
-    return 2 in groups.values()
-
-def count_between(lower, upper, init):
-    total = 0
-    if len(init) == len(lower):
-        if lower <= init <= upper:
-            if condition_2(init):
-                return 1
-        return 0
-
-    if init:
-        start = init[-1]
-    else:
-        start = lower[0]
-        end = upper[0]
-    for i in range(int(start), 10):
-        total += count_between(lower, upper, init + str(i))
-    return total
+from collections import Counter
 
 
+def non_decreasing_iter(val, end):
+    while val <= end:
+        digits = list(str(val))
+        last_digit = '0'
+        for i, digit in enumerate(digits):
+            digits[i] = max(last_digit, digit)
+            last_digit = digits[i]
+        val = ''.join(digits)
+        yield val
+        val = str(int(val) + 1)
 
-def main():
-    f = open('input.txt')
-    code = f.read()
-    lower, upper = code.split('-')
-    print(count_between(lower, upper, init=''))
-main()
+
+f = open('input.txt')
+code = f.read()
+lower, upper = code.split('-')
+
+p1 = p2 = 0
+for val in non_decreasing_iter(lower, upper):
+    counter_vals = Counter(val).values()
+    p1 += (max(counter_vals) >= 2)
+    p2 += 2 in counter_vals
+print(p1)
+print(p2)

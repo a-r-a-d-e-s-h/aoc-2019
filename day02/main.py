@@ -23,7 +23,7 @@ def solve_1(data):
 def solve_2(data):
     noun = 0
     while 1:
-        for verb in range(100):
+        for verb in range(100): # Assume verb can be at most 2 digits
             if runner(data, noun, verb) == 19690720:
                 return(100*noun + verb)
         else:
