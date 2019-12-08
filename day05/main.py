@@ -1,5 +1,6 @@
 input_file = "input.txt"
 
+
 class Computer:
     OPERATIONS = {
         1: 'add',
@@ -10,33 +11,72 @@ class Computer:
         6: 'jump_if_false',
         7: 'less_than',
         8: 'equals',
-        99: 'end'
+        99: 'halt'
     }
+
+    GET = 'get'
+    SET = 'set'
+    PARAM_TYPES = (GET, SET)
+
+    OP_SIGNATURES = {
+        'add': (GET, GET, SET),
+        'mul': (GET, GET, SET),
+        'less_than': (GET, GET, SET),
+        'equals': (GET, GET, SET),
+        'jump_if_true': (GET, GET),
+        'jump_if_false': (GET, GET),
+        'use_input': (SET,),
+        'ret_output': (GET,),
+        'halt': ()
+    }
+
     def __init__(self, program):
         self.program = tuple(program)
         self.memory = list(program)
         self.instruction_pointer = 0
         self.parameter_mode = 0
-        self.input_val = None
+        self.input_vals = []
+        self.halted = True
 
     def load(self):
         self.memory = list(self.program)
         self.instruction_pointer = 0
         self.parameter_mode = 0
+        self.halted = True
 
-    def run(self, input_val=None):
-        self.input_val = input_val
-        while 1:
+    def run(self, input_vals=[]):
+        if not isinstance(input_vals, (tuple, list)):
+            input_vals = [input_vals]
+        self.input_vals.extend(input_vals)
+        self.halted = False
+        while not self.halted:
             if self.step():
                 break
-        return self.input_val
+        return self.output_val
 
     def step(self):
         ip = self.instruction_pointer
         opcode = self.memory[ip]
         opcode, modes = self.parse_opcode(opcode)
+        sigs = self.OP_SIGNATURES[self.OPERATIONS[opcode]]
+        size = len(sigs) + 1
+        params = self.memory[ip + 1:ip + size]
+        self.instruction_pointer += size # gets changed later in jump functions
+        dparams = [] # parameters dereferenced according to mode
+        for param, mode in zip(params, modes):
+            val = param
+            if mode == 0:
+                val = self.memory[val]
+            dparams.append(val)
         func = self.get_func_for_opcode(opcode)
-        return func(modes)
+        get_params = [p for p, sig in zip(dparams, sigs) if sig == self.GET]
+        set_params = [p for p, sig in zip(params, sigs) if sig == self.SET]
+        res = func(*get_params)
+        if not isinstance(res, tuple):
+            res = (res,)
+        # If set_params is empty, this does nothing.
+        for set_param, result in zip(set_params, res):
+            self.memory[set_param] = result
 
     def parse_opcode(self, opcode):
         normal_opcode = opcode % 100
@@ -47,115 +87,33 @@ class Computer:
     def get_func_for_opcode(self, opcode):
         return getattr(self, self.OPERATIONS[opcode])
 
-    def add(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 4]
-        if modes[0] == 0:
-            x0 = self.memory[params[0]]
-        else:
-            x0 = params[0]
+    def add(self, x, y):
+        return x + y
 
-        if modes[1] == 0:
-            x1 = self.memory[params[1]]
-        else:
-            x1 = params[1]
-        self.memory[params[2]] = x0 + x1
-        self.instruction_pointer += 4
+    def mul(self, x, y):
+        return x * y
 
-    def mul(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 4]
-        if modes[0] == 0:
-            x0 = self.memory[params[0]]
-        else:
-            x0 = params[0]
+    def less_than(self, x, y):
+        return int(x < y)
 
-        if modes[1] == 0:
-            x1 = self.memory[params[1]]
-        else:
-            x1 = params[1]
-        self.memory[params[2]] = x0 * x1
-        self.instruction_pointer += 4
+    def equals(self, x, y):
+        return int(x == y)
 
-    def use_input(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 2]
-        self.memory[params[0]] = self.input_val
-        self.instruction_pointer += 2
+    def use_input(self):
+        return self.input_vals.pop(0)
 
-    def ret_output(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 2]
-        self.input_val = self.memory[params[0]]
-        self.instruction_pointer += 2
+    def ret_output(self, x):
+        self.output_val = x
 
-    def jump_if_true(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 3]
-        if modes[0] == 0:
-            test_val = self.memory[params[0]]
-        else:
-            test_val = params[0]
-        if modes[1] == 0:
-            addr = self.memory[params[1]]
-        else:
-            addr = params[1]
-        if test_val:
-            self.instruction_pointer = addr
-        else:
-            self.instruction_pointer += 3
+    def jump_if_true(self, x, y):
+        if x:
+            self.instruction_pointer = y
 
-    def jump_if_false(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 3]
-        if modes[0] == 0:
-            test_val = self.memory[params[0]]
-        else:
-            test_val = params[0]
-        if modes[1] == 0:
-            addr = self.memory[params[1]]
-        else:
-            addr = params[1]
-        if test_val == 0:
-            self.instruction_pointer = addr
-        else:
-            self.instruction_pointer += 3
+    def jump_if_false(self, x, y):
+        return self.jump_if_true(not(x), y)
 
-    def less_than(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 4]
-        if modes[0] == 0:
-            x0 = self.memory[params[0]]
-        else:
-            x0 = params[0]
-
-        if modes[1] == 0:
-            x1 = self.memory[params[1]]
-        else:
-            x1 = params[1]
-        self.memory[params[2]] = int(x0 < x1)
-        self.instruction_pointer += 4
-
-    def equals(self, modes):
-        ip = self.instruction_pointer
-        params = self.memory[ip + 1:ip + 4]
-        if modes[0] == 0:
-            x0 = self.memory[params[0]]
-        else:
-            x0 = params[0]
-
-        if modes[1] == 0:
-            x1 = self.memory[params[1]]
-        else:
-            x1 = params[1]
-        self.memory[params[2]] = int(x0 == x1)
-        self.instruction_pointer += 4
-
-    def end(self, model):
-        self.instruction_pointer += 1
-        return 1
-
-
+    def halt(self):
+        self.halted = True
 
 
 def main():
