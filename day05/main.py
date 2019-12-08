@@ -1,6 +1,17 @@
 input_file = "input.txt"
 
 class Computer:
+    OPERATIONS = {
+        1: 'add',
+        2: 'mul',
+        3: 'use_input',
+        4: 'ret_output',
+        5: 'jump_if_true',
+        6: 'jump_if_false',
+        7: 'less_than',
+        8: 'equals',
+        99: 'end'
+    }
     def __init__(self, program):
         self.program = tuple(program)
         self.memory = list(program)
@@ -29,30 +40,12 @@ class Computer:
 
     def parse_opcode(self, opcode):
         normal_opcode = opcode % 100
-        mode_1 = (opcode//100) % 10
-        mode_2 = (opcode//1000) % 10
-        mode_3 = (opcode//10000) % 10
-        return (normal_opcode, (mode_1, mode_2, mode_3))
+        modes = "{:03d}".format(opcode // 100)
+        modes = tuple(map(int, modes[::-1]))
+        return (normal_opcode, modes)
 
     def get_func_for_opcode(self, opcode):
-        if opcode == 1:
-            return self.add
-        if opcode == 2:
-            return self.mul
-        if opcode == 3:
-            return self.use_input
-        if opcode == 4:
-            return self.ret_output
-        if opcode == 5:
-            return self.jump_if_true
-        if opcode == 6:
-            return self.jump_if_false
-        if opcode == 7:
-            return self.less_than
-        if opcode == 8:
-            return self.equals
-        if opcode == 99:
-            return self.end
+        return getattr(self, self.OPERATIONS[opcode])
 
     def add(self, modes):
         ip = self.instruction_pointer

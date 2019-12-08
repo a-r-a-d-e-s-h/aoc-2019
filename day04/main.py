@@ -17,10 +17,18 @@ f = open('input.txt')
 code = f.read()
 lower, upper = code.split('-')
 
+import time
+start = time.time()
+
 p1 = p2 = 0
+everything = 0
 for val in non_decreasing_iter(lower, upper):
+    everything += 1
     counter_vals = Counter(val).values()
     p1 += (max(counter_vals) >= 2)
     p2 += 2 in counter_vals
+
+
 print(p1)
 print(p2)
+print(time.time() - start)
