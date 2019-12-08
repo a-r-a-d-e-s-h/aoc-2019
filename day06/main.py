@@ -2,28 +2,22 @@ from collections import defaultdict
 
 filename = 'input.txt'
 
-def parse_data(text):
-    lines = text.splitlines()
-    return [item.split(')') for item in lines]
-
 def solve_1(relations):
-    done = {}
-    remaining = set(relations.keys())
+    counts = {}
 
-    def recursive_calculate(item):
-        if item in relations:
-            item_orbits = relations[item]
-            recursive_calculate(item_orbits)
-            done[item] = 1 + done[item_orbits]
-            if item in remaining:
-                remaining.remove(item)
+    def count_parents(planet):
+        if planet in counts:
+            return counts[planet]
         else:
-            done[item] = 0
+            if planet in relations:
+                return 1 + count_parents(relations[planet])
+            else:
+                return 0
 
-    while remaining:
-        recursive_calculate(remaining.pop())
+    for planet in relations.keys():
+        counts[planet] = count_parents(planet)
 
-    return sum(done.values())
+    return sum(counts.values())
 
 
 def min_steps(relations, start, end):
@@ -53,8 +47,7 @@ def solve_2(data):
 
 
 def main():
-    f = open(filename)
-    data = parse_data(f.read())
+    data = [line.strip().split(')') for line in open(filename)]
     relations = {}
     for a, b in data:
         relations[b] = a
