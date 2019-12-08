@@ -1,6 +1,3 @@
-from collections import Counter
-
-
 class Colour:
     BLACK = '0'
     WHITE = '1'
@@ -18,9 +15,8 @@ class Colour:
 
 
 def solve_1(layers):
-    min_layer = min(layers, key=lambda layer: Counter(layer)['0'])
-    counter = Counter(min_layer)
-    return counter['1']*counter['2']
+    min_layer = min(layers, key=lambda layer: layer.count('0'))
+    return min_layer.count('1') * min_layer.count('2')
 
 
 def solve_2(layers):
