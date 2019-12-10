@@ -151,7 +151,10 @@ def solve_2(data):
 def main():
     f = open(filename)
     data = list(map(int, f.read().split(',')))
-    print(solve_1(data))
-    print(solve_2(data))
+    import time
+    start = time.time()
+    print(solve_1(data), "{:0.3f}s".format(time.time() - start))
+    start = time.time()
+    print(solve_2(data), "{:0.3f}s".format(time.time() - start))
 
 main()
