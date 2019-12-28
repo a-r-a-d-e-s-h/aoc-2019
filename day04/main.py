@@ -17,9 +17,6 @@ f = open('input.txt')
 code = f.read()
 lower, upper = code.split('-')
 
-import time
-start = time.time()
-
 p1 = p2 = 0
 everything = 0
 for val in non_decreasing_iter(lower, upper):
@@ -31,4 +28,3 @@ for val in non_decreasing_iter(lower, upper):
 
 print(p1)
 print(p2)
-print(time.time() - start)

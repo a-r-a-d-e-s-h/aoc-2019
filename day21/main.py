@@ -1,9 +1,6 @@
-from collections import defaultdict
-
-filename = "input.txt"
-
 class HaltedError(Exception):
     pass
+
 
 class Computer:
     OPERATIONS = {
@@ -34,15 +31,22 @@ class Computer:
         'ret_output': (GET,),
         'halt': ()
     }
+    instruction_pointer = 0
+    relative_base = 0
+    output_val = None
+    input_getter = None
+    halted = True
+    paused = True
 
-    def __init__(self, program):
-        self.program = tuple(program)
-        self.memory = list(program)
-        self.instruction_pointer = 0
-        self.relative_base = 0
+    def __init__(self, filename):
+        self.program = self.load_from_filename(filename)
+        self.memory = list(self.program)
         self.input_vals = []
-        self.halted = True
-        self.paused = True
+
+    def load_from_filename(self, filename):
+        with open(filename) as f:
+            text = f.read()
+            return tuple(map(int, text.split(',')))
 
     def load(self):
         self.memory = list(self.program)
@@ -123,6 +127,8 @@ class Computer:
         return int(x == y)
 
     def use_input(self):
+        if not self.input_vals:
+            return self.input_getter(self)
         return self.input_vals.pop(0)
 
     def ret_output(self, x):
@@ -143,77 +149,97 @@ class Computer:
         self.relative_base += x
 
 
-class Position:
-    def __init__(self, start, direction):
-        self.pos = start
-        self.dir = direction
+class SpringDroid:
+    NEW_LINE = 10
+    TILE_REGISTERS = ('A', 'B', 'C', 'D')
 
-    def rotate(self, direction):
-        x, y = self.dir
-        if direction == 0:
-            self.dir = (y, -x)
-        else:
-            self.dir = (-y, x)
+    def __init__(self, comp):
+        self.comp = comp
 
-    def step(self):
-        self.pos = tuple(map(sum, zip(self.pos, self.dir)))
+    def script_inputter(self, script):
+        def gen():
+            lines = script.splitlines()
+            for line in lines:
+                yield from (ord(c) for c in line)
+                yield self.NEW_LINE
+        gen = gen()
+        def f(comp):
+            return next(gen)
+        return f
+
+    def run_with_script(self, script):
+        inputter = self.script_inputter(script)
+        self.comp.load()
+        self.comp.input_getter = inputter
+        output_text = []
+        while 1:
+            self.comp.run()
+            if self.comp.halted:
+                break
+            elif self.comp.paused:
+                output = self.comp.output_val
+                if output >= 128:
+                    return (True, output)
+                output_text.append(chr(output))
+            else:
+                raise Exception("Unhandled case?")
+        return (False, output_text)
+
+    def parse_output_data(self, data):
+        lines = ''.join(data).splitlines()
+        chunks = []
+        last_chunk = []
+        for line in lines:
+            if not line and last_chunk:
+                chunks.append(last_chunk)
+                last_chunk = []
+            elif line:
+                last_chunk.append(line)
+        return chunks[-5:]
 
 
-def run_robot(data, start_tile=0):
-    comp = Computer(data)
-    panels = defaultdict(int)
-    panels[(0, 0)] = start_tile
-    painted_panels = defaultdict(int)
-    robot_pos = Position(
-        start=(0, 0),
-        direction=(0, -1)
-    )
-
-    comp.load()
-    while 1:
-        panel = panels[robot_pos.pos]
-        comp.run(panel)
-        if comp.halted:
-            break
-        colour = comp.output_val
-        comp.run()
-        direction = comp.output_val
-        if comp.halted:
-            break
-        panels[robot_pos.pos] = colour
-        painted_panels[robot_pos.pos] = colour
-        robot_pos.rotate(direction)
-        robot_pos.step()
-    return painted_panels
+def solve_1(comp):
+    droid = SpringDroid(comp)
+    script = [
+        "OR A J",
+        "AND B J",
+        "AND C J",
+        "NOT J J",
+        "AND D J",
+        "WALK"
+    ]
+    success, output = droid.run_with_script('\n'.join(script))
+    if not success:
+        print(''.join(output))
+    else:
+        return output
 
 
-def solve_1(data):
-    output = run_robot(data, start_tile=0)
-    return len(output)
-
-def solve_2(data):
-    output = run_robot(data, start_tile=1)
-    positions = output.keys()
-
-    min_x = min(pos[0] for pos in positions)
-    max_x = max(pos[0] for pos in positions)
-    min_y = min(pos[1] for pos in positions)
-    max_y = max(pos[1] for pos in positions)
-
-    lines = []
-    for y in range(min_y, max_y + 1):
-        row = []
-        for x in range(min_x, max_x + 1):
-            row.append(output[x, y])
-        row = ['#' if item else ' ' for item in row]
-        lines.append(''.join(row))
-    return '\n'.join(lines)
+def solve_2(comp):
+    droid = SpringDroid(comp)
+    script = [
+        "OR A J",
+        "AND B J",
+        "AND C J",
+        "NOT J J",
+        "AND D J",
+        "OR H T",
+        "OR E T",
+        "AND T J",
+        "RUN"
+    ]
+    success, output = droid.run_with_script('\n'.join(script))
+    if not success:
+        print(''.join(output))
+    else:
+        return output
 
 
 def main():
-    text = open(filename).read()
-    data = list(map(int, text.split(',')))
-    print(solve_1(data))
-    print(solve_2(data))
+    comp = Computer('input.txt')
+    print(solve_1(comp))
+    print(solve_2(comp))
 
-main()
+
+if __name__ == "__main__":
+    main()

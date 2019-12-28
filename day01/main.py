@@ -1,5 +1,5 @@
 def parse_input(filename):
-    return map(int, open(filename))
+    return tuple(map(int, open(filename)))
 
 
 def part_1(vals):

@@ -8,6 +8,9 @@ class Vec(tuple):
     def __sub__(self, vec):
         return Vec(*map(lambda x, y: x - y, self, vec))
 
+    def __neg__(self):
+        return Vec(*map(lambda x: -x, self))
+
 def main():
     v = Vec(1, 2, 3)
     w = Vec(4, 5, 6)

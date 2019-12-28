@@ -1,0 +1,5 @@
+slow days:
+15 # Fixed
+16
+19
+20

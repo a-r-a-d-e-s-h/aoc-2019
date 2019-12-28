@@ -1,6 +1,4 @@
-from collections import defaultdict
-
-filename = "input.txt"
+import time
 
 class HaltedError(Exception):
     pass
@@ -43,6 +41,7 @@ class Computer:
         self.input_vals = []
         self.halted = True
         self.paused = True
+        self.input_getter = None
 
     def load(self):
         self.memory = list(self.program)
@@ -123,6 +122,8 @@ class Computer:
         return int(x == y)
 
     def use_input(self):
+        if not self.input_vals:
+            return self.input_getter()
         return self.input_vals.pop(0)
 
     def ret_output(self, x):
@@ -143,77 +144,155 @@ class Computer:
         self.relative_base += x
 
 
-class Position:
-    def __init__(self, start, direction):
-        self.pos = start
-        self.dir = direction
+class Tile:
+    EMPTY = 0
+    WALL = 1
+    BLOCK = 2
+    PADDLE = 3
+    BALL = 4
 
-    def rotate(self, direction):
-        x, y = self.dir
-        if direction == 0:
-            self.dir = (y, -x)
-        else:
-            self.dir = (-y, x)
+    SYMBOLS = {
+        EMPTY: ' ',
+        WALL: '#',
+        BLOCK: '^',
+        PADDLE: '=',
+        BALL: 'o'
+    }
 
-    def step(self):
-        self.pos = tuple(map(sum, zip(self.pos, self.dir)))
+    @classmethod
+    def display(cls, val):
+        return cls.SYMBOLS[val]
 
 
-def run_robot(data, start_tile=0):
+def load_squares(data):
     comp = Computer(data)
-    panels = defaultdict(int)
-    panels[(0, 0)] = start_tile
-    painted_panels = defaultdict(int)
-    robot_pos = Position(
-        start=(0, 0),
-        direction=(0, -1)
-    )
-
     comp.load()
+    vals = []
     while 1:
-        panel = panels[robot_pos.pos]
-        comp.run(panel)
-        if comp.halted:
-            break
-        colour = comp.output_val
         comp.run()
-        direction = comp.output_val
         if comp.halted:
             break
-        panels[robot_pos.pos] = colour
-        painted_panels[robot_pos.pos] = colour
-        robot_pos.rotate(direction)
-        robot_pos.step()
-    return painted_panels
-
+        vals.append(comp.output_val)
+    squares = []
+    for i in range(len(vals)//3):
+        items = vals[i*3:(i+1)*3]
+        squares.append(items)
+    return squares
+    
 
 def solve_1(data):
-    output = run_robot(data, start_tile=0)
-    return len(output)
+    squares = load_squares(data)
+    tot = 0
+    for sq in squares:
+        if sq[2] == Tile.BLOCK:
+            tot += 1
+    return tot
+
+
+def build_display_and_get_score(comp):
+    positions = {}
+    stop = False
+
+    while 1:
+        item = []
+        score = None
+        for i in range(3):
+            comp.run()
+            if comp.halted:
+                stop = True
+                print("Breaking with i={}".format(i))
+                break
+            item.append(comp.output_val)
+        if stop:
+            break
+        x, y, val = item
+        if (x, y) == (-1, 0):
+            score = val
+            break
+        positions[x, y] = val
+
+
+    max_x = max(coord[0] for coord in positions.keys())
+    max_y = max(coord[1] for coord in positions.keys())
+    width = max_x + 1
+    height = max_y + 1
+    display = [[0]*width for __ in range(height)]
+    for (x, y), val in positions.items():
+        display[y][x] = val
+    return display, score
+
+
+def play_game(comp, game):
+    while 1:
+        item = []
+        for i in range(3):
+            comp.run()
+            if comp.halted:
+                print(game.score)
+                return
+            item.append(comp.output_val)
+        x, y, val = item
+        if (x, y) == (-1, 0):
+            game.score = val
+        else:
+            game.update(item)
+
+
+class GameState:
+    def __init__(self, display, score):
+        self.score = score
+        self.display = display
+
+    def update(self, item):
+        x, y, val = item
+        self.display[y][x] = val
+
+    def print_display(self):
+        for row in self.display:
+            print(''.join(map(Tile.display, row)))
+        print("Score: {}".format(self.score))
+
+    def find_paddle(self):
+        for y, row in enumerate(self.display):
+            for x, val in enumerate(row):
+                if val == Tile.PADDLE:
+                    return (x, y)
+
+    def find_ball(self):
+        for y, row in enumerate(self.display):
+            for x, val in enumerate(row):
+                if val == Tile.BALL:
+                    return (x, y)
+
+
+
 
 def solve_2(data):
-    output = run_robot(data, start_tile=1)
-    positions = output.keys()
+    data[0] = 2
+    comp = Computer(data)
+    comp.load()
 
-    min_x = min(pos[0] for pos in positions)
-    max_x = max(pos[0] for pos in positions)
-    min_y = min(pos[1] for pos in positions)
-    max_y = max(pos[1] for pos in positions)
+    display, score = build_display_and_get_score(comp)
+    game = GameState(display, score)
 
-    lines = []
-    for y in range(min_y, max_y + 1):
-        row = []
-        for x in range(min_x, max_x + 1):
-            row.append(output[x, y])
-        row = ['#' if item else ' ' for item in row]
-        lines.append(''.join(row))
-    return '\n'.join(lines)
+    def ai_player():
+        paddle = game.find_paddle()
+        ball = game.find_ball()
 
+        if ball[0] < paddle[0]:
+            return -1
+        elif ball[0] > paddle[0]:
+            return 1
+        else:
+            return 0
 
+    comp.input_getter = ai_player
+
+    play_game(comp, game)
+    
 def main():
-    text = open(filename).read()
-    data = list(map(int, text.split(',')))
+    data = list(map(int, open('input.txt').read().split(',')))
     print(solve_1(data))
-    print(solve_2(data))
+    solve_2(data)
 
 main()

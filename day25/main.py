@@ -1,9 +1,6 @@
-from collections import defaultdict
-
-filename = "input.txt"
-
 class HaltedError(Exception):
     pass
+
 
 class Computer:
     OPERATIONS = {
@@ -34,15 +31,24 @@ class Computer:
         'ret_output': (GET,),
         'halt': ()
     }
+    instruction_pointer = 0
+    relative_base = 0
+    output_val = None
+    input_getter = None
+    halted = True
+    paused = True
+    input_needed = False
+    block_on_input = False
 
-    def __init__(self, program):
-        self.program = tuple(program)
-        self.memory = list(program)
-        self.instruction_pointer = 0
-        self.relative_base = 0
+    def __init__(self, filename):
+        self.program = self.load_from_filename(filename)
+        self.memory = list(self.program)
         self.input_vals = []
-        self.halted = True
-        self.paused = True
+
+    def load_from_filename(self, filename):
+        with open(filename) as f:
+            text = f.read()
+            return tuple(map(int, text.split(',')))
 
     def load(self):
         self.memory = list(self.program)
@@ -68,6 +74,7 @@ class Computer:
             input_vals = [input_vals]
         self.input_vals.extend(input_vals)
         self.paused = False
+        self.needs_input = False
         while not (self.halted or self.paused):
             if self.step():
                 break
@@ -78,6 +85,9 @@ class Computer:
         opcode = self.memory[ip]
         opcode, modes = self.parse_opcode(opcode)
         sigs = self.OP_SIGNATURES[self.OPERATIONS[opcode]]
+        if self.need_input(opcode) and self.block_on_input:
+            self.input_needed = True
+            return 1
         size = len(sigs) + 1
         params = self.memory[ip + 1:ip + size]
         self.instruction_pointer += size # gets changed later in jump functions
@@ -101,6 +111,11 @@ class Computer:
         for set_param, result in zip(set_params, res):
             self.set_addr(set_param, result)
 
+    def need_input(self, opcode):
+        if self.OPERATIONS[opcode] in ["use_input"]:
+            return not self.input_vals
+
+
     def parse_opcode(self, opcode):
         normal_opcode = opcode % 100
         modes = "{:03d}".format(opcode // 100)
@@ -123,6 +138,8 @@ class Computer:
         return int(x == y)
 
     def use_input(self):
+        if not self.input_vals:
+            return self.input_getter(self)
         return self.input_vals.pop(0)
 
     def ret_output(self, x):
@@ -143,77 +160,24 @@ class Computer:
         self.relative_base += x
 
 
-class Position:
-    def __init__(self, start, direction):
-        self.pos = start
-        self.dir = direction
+def main():
+    comp = Computer("input.txt")
+    def send_input(data):
+        data = list(map(ord, data)) + [10]
+        comp.input_vals.extend(data)
 
-    def rotate(self, direction):
-        x, y = self.dir
-        if direction == 0:
-            self.dir = (y, -x)
-        else:
-            self.dir = (-y, x)
-
-    def step(self):
-        self.pos = tuple(map(sum, zip(self.pos, self.dir)))
-
-
-def run_robot(data, start_tile=0):
-    comp = Computer(data)
-    panels = defaultdict(int)
-    panels[(0, 0)] = start_tile
-    painted_panels = defaultdict(int)
-    robot_pos = Position(
-        start=(0, 0),
-        direction=(0, -1)
-    )
-
+    comp.block_on_input = True
     comp.load()
     while 1:
-        panel = panels[robot_pos.pos]
-        comp.run(panel)
-        if comp.halted:
-            break
-        colour = comp.output_val
         comp.run()
-        direction = comp.output_val
         if comp.halted:
             break
-        panels[robot_pos.pos] = colour
-        painted_panels[robot_pos.pos] = colour
-        robot_pos.rotate(direction)
-        robot_pos.step()
-    return painted_panels
+        elif comp.paused:
+            output = comp.output_val
+            print(chr(output), end='')
+        elif comp.input_needed:
+            send_input(input())
 
 
-def solve_1(data):
-    output = run_robot(data, start_tile=0)
-    return len(output)
-
-def solve_2(data):
-    output = run_robot(data, start_tile=1)
-    positions = output.keys()
-
-    min_x = min(pos[0] for pos in positions)
-    max_x = max(pos[0] for pos in positions)
-    min_y = min(pos[1] for pos in positions)
-    max_y = max(pos[1] for pos in positions)
-
-    lines = []
-    for y in range(min_y, max_y + 1):
-        row = []
-        for x in range(min_x, max_x + 1):
-            row.append(output[x, y])
-        row = ['#' if item else ' ' for item in row]
-        lines.append(''.join(row))
-    return '\n'.join(lines)
-
-
-def main():
-    text = open(filename).read()
-    data = list(map(int, text.split(',')))
-    print(solve_1(data))
-    print(solve_2(data))
-
-main()
+if __name__ == "__main__":
+    main()
