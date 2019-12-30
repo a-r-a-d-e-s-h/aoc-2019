@@ -1,97 +1,87 @@
-from itertools import cycle
+from itertools import accumulate, chain, count, cycle, islice, repeat, tee
+import operator
 
 filename = 'input.txt'
 
+
 class Puz:
     base_pattern = (0, 1, 0, -1)
+
     def __init__(self, filename):
         self.data = open(filename).read()
         self.length = len(self.data)
 
     def iter_digits(self):
-        for char in self.data:
-            yield int(char)
+        return map(int, self.data)
 
     def sum_and_multiply(self, phase, pattern):
-        return sum(x*y for x, y in zip(phase, pattern))
+        return sum(map(operator.mul, phase, pattern))
 
     def _pattern_from_base(self, base, index):
-        for item in base:
-            for __ in range(index):
-                yield item
+        def repeater(x):
+            return repeat(x, index)
+        return chain.from_iterable(map(repeater, base))
 
     def pattern_from_base(self, index):
         the_iter = self._pattern_from_base(self.base_pattern, index + 1)
         the_iter = cycle(the_iter)
-        next(the_iter)
-        return the_iter
+        return islice(the_iter, 1, None)
 
-    def calc_for_phase(self, phase):
-        ret = []
-        for i in range(len(phase)):
-            val = self.calc_with_index(phase, i)
-            ret.append(abs(val) % 10)
-        return ret
+    def iterate_phase(self, phase):
+        for i in range(self.length):
+            phase[i] = self.get_digit(self.calc_with_index(phase, i))
+        phase[:] = map(self.get_digit, phase)
 
     def calc_with_index(self, phase, index):
         pat = self.pattern_from_base(index)
-        return self.sum_and_multiply(phase, pat)
+        return self.sum_and_multiply(islice(phase, index, None),
+                                     islice(pat, index, None))
+
+    def get_digit(self, val):
+        return abs(val) % 10
+
 
 def solve_1(filename):
     puz = Puz(filename)
     phase = list(puz.iter_digits())
     for i in range(100):
-        phase = puz.calc_for_phase(phase)
-    return ''.join(map(str, phase[:8]))
+        puz.iterate_phase(phase)
+    return ''.join(map(str, islice(phase, 8)))
 
-
-def build_partial_sum_array(a):
-    # have an array of integers of length n that we cycle
-    # build an nxn array so that array[i][j]
-    # is the sum of (i+1) consecutive terms starting from a[j]
-    # and cycling round if necessary
-
-    n = len(a)
-    array = [[0]*n for __ in range(n)]
-    double_a = a + a
-    for i in range(n):
-        new_row = []
-        for j in range(n):
-            if i == 0:
-                array[i][j] = a[j]
-            else:
-                array[i][j] = a[i-1][j] + double_a[j + i]
-    return build_partial_sum_array(a)
-
-
-def get_digit(n):
-    return abs(n) % 10
 
 def solve_2(base_seq, repeats, offset, iterations):
     base_len = len(base_seq)
     full_length = base_len * repeats
     if offset < (full_length + 1)//2:
-        raise NotImplementedError("This method only works for offset"
-                                  " sufficiently large.")
+        raise NotImplementedError(
+            "This method only works for offset sufficiently large."
+        )
     # We need the sequence repeating from the offset
-    counter = offset
     seq = []
     for i in range(offset, full_length):
         seq.append(base_seq[i % base_len])
 
-    seq_len = len(seq)
+    seq.reverse()
     for __ in range(iterations):
-        for i in range(1, seq_len):
-            seq[seq_len - 1 - i] += seq[seq_len - i]
+        seq = accumulate(seq)
 
-        seq = list(map(get_digit, seq))
+    def get_digit(n):
+        return abs(n) % 10
+
+    seq = map(get_digit, seq)
+    seq = list(seq)
+    seq.reverse()
     return ''.join(map(str, seq[:8]))
 
 
 def main():
-    digits = list(map(int, open(filename).read()))
+    import time
+    start = time.time()
     print(solve_1(filename))
+    print("{:.2f}s".format(time.time() - start))
+    digits = list(map(int, open(filename).read()))
     offset = int(''.join(map(str, digits[:7])))
     print(solve_2(digits, 10000, offset, 100))
+
 
 main()

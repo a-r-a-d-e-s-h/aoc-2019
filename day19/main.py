@@ -1,8 +1,12 @@
+from bisect import bisect_left
+from itertools import count
+import math
 filename = 'input.txt'
 
 
 class HaltedError(Exception):
     pass
+
 
 class Computer:
     OPERATIONS = {
@@ -86,13 +90,13 @@ class Computer:
         sigs = self.OP_SIGNATURES[self.OPERATIONS[opcode]]
         size = len(sigs) + 1
         params = self.memory[ip + 1:ip + size]
-        self.instruction_pointer += size # gets changed later in jump functions
+        self.instruction_pointer += size  # gets changed later in jump
         for index in range(len(params)):
             mode = modes[index]
             if modes[index] == 2:
                 params[index] += self.relative_base
 
-        dparams = [] # parameters dereferenced according to mode
+        dparams = []  # parameters dereferenced according to mode
         for param, mode in zip(params, modes):
             if mode in (0, 2):
                 param = self.get_addr(param)
@@ -150,83 +154,183 @@ class Computer:
     def offset_rel_base(self, x):
         self.relative_base += x
 
-def get_at_pos(comp, x, y):
-    comp.load()
 
-    def input_getter(comp):
-        to_ret = input_getter.vals.pop(0)
-        return to_ret
-    comp.input_getter = input_getter
-    input_getter.vals = [x, y]
-    comp.run()
-    return comp.output_val
+class BisectRange:
+    def __init__(self, func, lower, upper):
+        self.func = func
+        self.lower = lower
+        self.upper = upper
 
-def solve_1(comp, dimension, do_print=False):
+    def __len__(self):
+        return self.upper - self.lower + 1
+
+    def __getitem__(self, v):
+        return self.func(v + self.lower)
+
+    def bisect(self, val):
+        return self.lower + bisect_left(self, val)
+
+
+class TractorBeam:
+    """
+    For accessing the tractor beam computer, and predicting its behaviour
+
+    We run the intcode program to get specific data, but we run on an
+    assumption that there are constants 0 < a < b such that a coordinate (x, y)
+    lies within the tractor beam if and only if ay <= x <= by, and use this
+    assumption to take shortcuts where possible.
+    """
+
+    def __init__(self, filename):
+        self.comp = Computer(filename)
+        self.a = None
+        self.b = None
+        self.known_bounds = {0: (0, 0)}
+        self.highest_known_bounds = 0
+        self.calls = 0
+
+    def __str__(self):
+        if self.a is not None:
+            return "<TractorBeam: [{}<a<={}, {}<=b<{}]>".format(
+                    *self.a, *self.b)
+        else:
+            return "<TractorBeam: Bounds unknown>"
+
+    def check_pos(self, x, y):
+        self.calls += 1
+        self.comp.load()
+        self.comp.run([x, y])
+        return self.comp.output_val
+
+    def get_for_pos(self, x, y):
+        pass
+
+    def get_bounds_for_row(self, row):
+        if row in self.known_bounds:
+            return self.known_bounds[row]
+        else:
+            return self.calculate_bounds_for_row(row)
+
+    def calculate_bounds_for_row(self, row):
+        if self.a is None:
+            self.initialise_bounds()
+        if row > self.highest_known_bounds*2:
+            # Don't jump more than twice what we already know.
+            # If so, do some smaller ones first.
+            self.calculate_bounds_for_row(row//2 + 1)
+
+        # Now we actually calculate what we have.
+        # lower bound...
+        min_x = math.floor(self.a[0]*row) + 1
+        max_x = math.ceil(self.a[1]*row) - 1
+        lower_x = self.find_lower_bound(row, min_x, max_x)
+        # upper bound...
+
+        min_x = math.floor(self.b[0]*row) + 1
+        max_x = math.ceil(self.b[1]*row) - 1
+        upper_x = self.find_upper_bound(row, min_x, max_x)
+        self.known_bounds[row] = (min_x, max_x)
+        self.highest_known_bounds = max(row, self.highest_known_bounds)
+        if lower_x <= upper_x:
+            self.update_bounds(row, lower_x, upper_x)
+        return (lower_x, upper_x)
+
+    def find_lower_bound(self, row, lower, upper):
+        def func(v):
+            return self.check_pos(v, row)
+        bisector = BisectRange(func, lower, upper)
+        return bisector.bisect(1)  # Where is first 1
+
+    def find_upper_bound(self, row, lower, upper):
+        def func(v):
+            return -self.check_pos(v, row)
+        bisector = BisectRange(func, lower, upper)
+        return bisector.bisect(0) - 1  # Where is last 1
+
+    def initialise_bounds(self):
+        y, (x_l, x_r) = self.find_nontrivial_row()
+        self.a = [(x_l-1)/y, x_l/y]
+        self.b = [x_r/y, (x_r+1)/y]
+        self.highest_known_bounds = y
+
+    def update_bounds(self, y, x_l, x_r):
+        self.a[0] = max(self.a[0], (x_l - 1)/y)
+        self.a[1] = min(self.a[1], x_l/y)
+        self.b[0] = max(self.b[0], x_r/y)
+        self.b[1] = min(self.b[1], (x_r + 1)/y)
+
+    def find_nontrivial_row(self):
+        """Search for the first row with 1's in, other than x=y=0"""
+        for i in count(1):
+            for y in range(i + 1):  # Do a diagonal sweep.
+                x = i - y
+                if self.check_pos(x, y):
+                    break
+            else:
+                continue
+            break
+        # The (x, y) will be a nontrivial point in the tractor beam.
+        # We will now find the start and finish of this row.
+        return y, self.seek_bounds_for_row(y, x, x)
+
+    def seek_bounds_for_row(self, row, x_left, x_right):
+        """
+        Find start and end bounds for the row, with starting vals.
+
+        Assume that (x_left, row) and (x_right, row) are in the tractor beam,
+        and that x_left <= x_right. We walk left from (x_left, row) until we
+        find squares outside the tractor beam, and right from (x_right, row).
+        """
+        left_bound = x_left
+        while 1:
+            if self.check_pos(left_bound - 1, row):
+                left_bound -= 1
+            else:
+                break
+
+        right_bound = x_right
+        while 1:
+            if self.check_pos(right_bound + 1, row):
+                right_bound += 1
+            else:
+                break
+        bounds = (left_bound, right_bound)
+        self.known_bounds[row] = bounds
+        return bounds
+
+
+def solve_1(tractor_beam, dimension):
     tot = 0
-    for y in range(dimension):
-        for x in range(dimension):
-            output = get_at_pos(comp, x, y)
-            tot += bool(output)
-            if do_print:
-                print(output, end='')
-        if do_print:
-            print()
+    for y in range(50):
+        if tractor_beam.a is not None:
+            if math.floor(y * tractor_beam.a[0]) + 1 >= 50:
+                break
+        u, v = tractor_beam.get_bounds_for_row(y)
+        v = min(v, 49)
+        if u <= v:
+            tot += v + 1 - u
     return tot
 
-def find_boundaries_brute_force(comp, n):
-    x = 0
-    while 1:
-        res = get_at_pos(comp, x, n)
-        if res:
-            break
-        x += 1
-    start = x
-    while 1:
-        res = get_at_pos(comp, x, n)
-        if res == 0:
-            break
-        x+= 1
-    end = x - 1
-    return (start, end)
 
-def find_boundaries(comp, n, first_guess):
-    x = first_guess[0]
-    while 1:
-        res = get_at_pos(comp, x, n)
-        if res:
-            break
-        x += 1
-    start = x
-    x = first_guess[1]
-    while 1:
-        res = get_at_pos(comp, x, n)
-        if res == 0:
-            break
-        x += 1
-    end = x - 1
-    return (start, end)
-
-def solve_2(comp, dimension):
-    test_val = 10
-    next_guess = find_boundaries_brute_force(comp, test_val)
+def solve_2(tractor_beam, dimension):
     boundaries = {}
-    counter = test_val
-    while 1:
-        next_guess = find_boundaries(comp, counter, next_guess)
-        boundaries[counter] = next_guess
-
-        if counter - test_val + 1 >= dimension:
-            top = boundaries[counter - dimension + 1]
-            bot = boundaries[counter]
-            if top[1] - bot[0] >= dimension - 1:
-                break
-        counter += 1
+    counter = 100
+    for counter in count(100):
+        top = tractor_beam.get_bounds_for_row(counter - dimension + 1)
+        bot = tractor_beam.get_bounds_for_row(counter)
+        if top[1] - bot[0] >= dimension - 1:
+            break
     return 10000*bot[0] + counter - dimension + 1
 
 
 def main():
+    import time
+    start = time.time()
     comp = Computer(filename)
-    print(solve_1(comp, 50))
-    print(solve_2(comp, 100))
+    tractor_beam = TractorBeam(filename)
+    print(solve_1(tractor_beam, 50))
+    print(solve_2(tractor_beam, 100))
+    print("elapsed: {:.2f}s".format(time.time() - start))
+
 
 main()
