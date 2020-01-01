@@ -1,6 +1,5 @@
-from collections import defaultdict
-
-filename = "test1.txt"
+from bisect import bisect_left
+from collections import defaultdict, deque, namedtuple
 
 class Vec(tuple):
     def __new__(cls, *args):
@@ -15,200 +14,244 @@ class Vec(tuple):
     def __neg__(self):
         return Vec(*map(lambda x: -x, self))
 
+    @property
+    def x(self):
+        return self[0]
+
+    @property
+    def y(self):
+        return self[1]
+
+    @property
+    def z(self):
+        return self[2]
 
 class Puz:
     DIRECTIONS = [Vec(0, 1), Vec(0, -1), Vec(1, 0), Vec(-1, 0)]
+    State = namedtuple("State", ('keys', 'droids'))
+
     def __init__(self, grid):
-        self._grid = grid
-        self.get_pos()
-        self.compute_distance_tables()
+        self.grid = grid
+        self.init_grid()
+        self.init_keys()
+        self.init_tables()
 
-    def __str__(self):
-        return '\n'.join(''.join(row) for row in self._grid)
+    def init_keys(self):
+        self.total_keys = 0
+        self.all_keys = []
+        for vec, tile in self.iterate():
+            if tile.islower():
+                self.total_keys += 1
+                self.all_keys.append(tile)
 
-    def is_key(self, x, y):
-        return self.grid(x, y).islower()
+    def init_grid(self):
+        self.droid_positions = []
+        for vec, tile in self.iterate():
+            if tile == '@':
+                self.droid_positions.append(vec)
 
-    def is_door(self, x, y):
-        return self.grid(x, y).isupper()
+    def init_tables(self):
+        self.tables = []
+        for pos in self.droid_positions:
+            self.tables.append(self.tables_from_pos(pos)) 
 
-    def grid(self, x, y):
-        return self._grid[y][x]
-
-    def set_grid(self, x, y, val):
-        self._grid[y][x] = val
-
-    def get_pos(self):
-        for y, row in enumerate(self._grid):
-            for x, tile in enumerate(row):
-                if tile == '@':
-                    self.pos = Vec(x, y)
-                    self.set_grid(x, y, '.')
-
-
-    def on_grid(self, x, y):
-        try:
-            self.grid(x, y)
-        except IndexError:
-            return False
-        else:
-            return True
-
-    def accessible_keys_from(self, pos, have_keys):
+    def tables_from_pos(self, pos):
+        tables = {}
         to_do = [pos]
-        doors = list(map(str.upper, have_keys))
-        min_distances = {}
-        keys = {}
-        locations = {}
-        min_distances[pos] = 0
+        tile_at_pos = self.grid[pos.y][pos.x]
+        if tile_at_pos in ('.', '#'):
+            raise RuntimeError("Invalid start point.")
+        done = []
         while to_do:
             next_to_do = []
-            for vec in to_do:
-                this_dist = min_distances[vec]
-                for direction in self.DIRECTIONS:
-                    test_vec = vec + direction
-                    if self.on_grid(*test_vec):
-                        tile = self.grid(*test_vec)
-                        if tile == '.' or tile.islower() or tile in doors:
-                            if test_vec not in min_distances:
-                                min_distances[test_vec] = this_dist + 1
-                                next_to_do.append(test_vec)
-                                if tile != '.' and tile not in have_keys and tile not in doors:
-                                    keys[tile] = this_dist + 1
-                                    locations[tile] = test_vec
-                pass
+            for pos in to_do:
+                tile = self.grid[pos.y][pos.x]
+                tables[tile] = self.keys_from_pos(pos)
+                done.append(tile)
+                for destination, entry in tables[tile].items():
+                    if destination not in done:
+                        next_to_do.append(entry.pos)
             to_do = next_to_do
-        return {'dists': keys, 'locations': locations}
-
-    def collect_all_keys(self):
-        key_realms = {(): KeyRealm(self._grid, ())}
+        return tables
 
 
-    def count_keys_and_doors(self):
-        keys = doors = 0
-        for row in self._grid:
-            for tile in row:
-                if tile.islower():
-                    keys += 1
-                elif tile.isupper():
-                    doors += 1
-        return (keys, doors)
+    def keys_from_pos(self, pos, locked=()):
+        Node = namedtuple('Node', ('pos', 'parent', 'dist'))
+        to_do = [Node(pos, 0, None)]
+        visited = deque([pos])
+        dist = 0
+        def have_visited(vec):
+            tot_visited = len(visited)
+            index = bisect_left(visited, vec)
+            if index >= tot_visited:
+                return (False, index)
+            else:
+                if visited[index] != vec:
+                    return (False, index)
+                else:
+                    return (True, index)
 
-    def openable_doors(self):
-        res = self.accessible_keys_and_distances()
-        keys = res['keys']
-        doors = res['doors']
-        ret = []
-        for door in doors.keys():
-            if door.lower() in keys:
-                ret.append(door)
-        return ret
+        keys_reached = {}
+        while to_do:
+            next_to_do = []
+            dist += 1
+            for node in to_do:
+                tile = self.grid[node.pos.y][node.pos.x]
+                if tile.islower() and node.pos != pos:
+                    keys_reached[tile] = node
+                    continue
 
-    def open_door(self, door):
-        for y, row in enumerate(self._grid):
-            for x, tile in enumerate(row):
-                if self.grid(x, y) == door:
-                    self.set_grid(x, y, '.')
+                for direction in self.DIRECTIONS:
+                    test_vec = node.pos + direction
+                    test_tile = self.grid[test_vec.y][test_vec.x]
+                    if test_tile != '#' and test_tile not in locked:
+                        is_visited, index = have_visited(test_vec)
+                        if not is_visited:
+                            next_to_do.append(Node(test_vec, node, dist))
+                            visited.insert(index, test_vec)
+            to_do = next_to_do
+        
+        # We want to return the distances from this position for each key, plus
+        # any doors along the way.
+        table = {}
+        Entry = namedtuple("Entry", ('pos', 'distance', 'doors'))
+        for key_name in keys_reached:
+            node = keys_reached[key_name]
+            key_pos = node.pos
+            path = []
+            while node.parent:
+                path.append(node)
+                node = node.parent
+            path_doors = []
+            for node in path:
+                tile = self.grid[node.pos.y][node.pos.x]
+                if tile.isupper():
+                    path_doors.append(tile)
+            table[key_name] = Entry(key_pos, len(path), path_doors[::-1])
+        return table
+
+    def get_initial_state(self):
+        return self.State((), ('@',)*len(self.droid_positions))
 
     def min_path(self):
-        self.best_found = float('inf')
-        self.min_from(self.pos, (), 0)
-        return self.best_found
+        # Each state of an explored solution will be represented by a
+        # collection of values. This will be a tuple of two tuples. The first
+        # being the list of all keys currently held, in alphabetal order. The
+        # second being the current location of each droid, represented by the
+        # character value of its tile. i.e. @ for start, or key name otherwise.
+        # We don't store intermediate positions, we hop directly to the next
+        # key. For each number of steps taken, we will have a deque of all
+        # states to explore from that point.
+        State = self.State
+        initial = self.get_initial_state()
+        distances = defaultdict(list, {0: [initial]})
+        visited_states = deque([initial])
+        visited_distances = deque([0])
+        counter = 0
 
-    def min_from(self, pos, keys, running_tot):
-        # We have the keys stored in keys
-        if len(keys) < 15:
-            print("investigating:", keys)
-        remaining_keys = tuple(key for key in self.all_keys if key not in keys)
-        lower_bound = 0
-        for key in remaining_keys:
-            lower_bound = max(lower_bound, self.lookup[key][pos])
-        if running_tot + lower_bound >= self.best_found:
-            # No point in continuing.
-            return
-
-        accessible = self.accessible_keys_from(pos, keys)
-        dists = accessible['dists']
-        locations = accessible['locations']
-        if not dists: # we have visited every key!
-            if running_tot < self.best_found:
-                print(running_tot)
-                self.best_found = running_tot
+        def find_state(state):
+            index = bisect_left(visited_states, state)
+            total = len(visited_states)
+            if index >= total:
+                return (False, index)
+            if visited_states[index] != state:
+                return (False, index)
             else:
-                print("{} <= {}".format(self.best_found, running_tot))
-            return
-        for key in dists.keys():
-            if dists[key] + running_tot >= self.best_found:
-                continue # skip this
-            self.min_from(locations[key],
-                          keys + (key,),
-                          running_tot + dists[key])
+                return (True, index)
 
-    def compute_distance_tables(self):
-        # For each key, calculate distance to it from every square, treating
-        # this keys own door as locked, but all others open. This is always a
-        # lower bound given any position, for any uncollected key.
-        keys_with_pos = {}
-        doors_with_pos = {}
-        all_paths = []
-        for y, row in enumerate(self._grid):
+        max_keys_found = 0
+        while 1:
+            for state in distances[counter]:
+                if len(state.keys) >= self.total_keys:
+                    return counter
+                if len(state.keys) > max_keys_found:
+                    max_keys_found = len(state.keys)
+                max_keys_found = max(max_keys_found, len(state.keys))
+                for index, start in enumerate(state.droids):
+                    table = self.tables[index][start]
+                    for end, entry in table.items():
+                        if not all(d.lower() in state.keys for d in entry.doors):
+                            # We cannot get to this key, locked doors in way.
+                            continue
+                        new_dist = counter + entry.distance
+                        if end in state.keys:
+                            new_keys = state.keys
+                        else:
+                            new_keys = tuple(sorted(state.keys + (end,)))
+                        new_droids = list(state.droids)
+                        new_droids[index] = end
+                        new_droids = tuple(new_droids)
+                        new_state = State(new_keys, new_droids)
+                        have_state, new_index = find_state(new_state)
+                        if not have_state:
+                            distances[new_dist].append(new_state)
+                            visited_states.insert(new_index, new_state)
+                            visited_distances.insert(new_index, new_dist)
+                        else:
+                            dist_for_state = visited_distances[new_index]
+                            if dist_for_state > new_dist:
+                                distances[dist_for_state].remove(new_state)
+                                distances[new_dist].append(new_state)
+                                visited_distances[new_index] = new_dist
+            del distances[counter]
+            counter += 1
+
+    def iterate(self):
+        for y, row in enumerate(self.grid):
             for x, tile in enumerate(row):
-                if tile.islower():
-                    keys_with_pos[tile] = Vec(x, y)
-                elif tile.isupper():
-                    doors_with_pos[tile] = Vec(x, y)
-                if tile != '#':
-                    all_paths.append(Vec(x, y))
-        lookup_for_key = {}
-        all_keys = tuple(sorted(keys_with_pos.keys()))
-        self.all_keys = all_keys
-        blank_grid = []
-        for row in self._grid:
-            new_row = []
-            for tile in row:
-                if tile == '#':
-                    new_row.append('#')
-                else:
-                    new_row.append('.')
-            blank_grid.append(new_row)
+                yield Vec(x, y), tile
 
-        for this_key in all_keys:
-            key_pos = keys_with_pos[this_key]
-            door_pos = doors_with_pos[this_key.upper()]
-            lookup = {key_pos: 0}
-            lookup_for_key[this_key] = lookup
-            to_do = [key_pos]
-            while to_do:
-                new_to_do = []
-                while to_do:
-                    vec = to_do.pop()
-                    for direction in self.DIRECTIONS:
-                        test_vec = vec + direction
-                        x, y = test_vec
-                        if all((
-                            test_vec not in lookup,
-                            blank_grid[y][x] == '.',
-                            test_vec != door_pos
-                        )):
-                            lookup[test_vec] = lookup[vec] + 1
-                            to_do.append(test_vec)
-                new_to_do = to_do
-
-        self.lookup = lookup_for_key
+    def __str__(self):
+        return '\n'.join(''.join(row) for row in self.grid)
 
 
-def solve_1(puz):
-    return puz.min_path()
+def solve_1(grid):
+    puz = Puz(grid)
+    answer = puz.min_path()
+    return answer
 
+
+def solve_2(grid):
+    puz = Puz(grid)
+    start_vec = None
+    for vec, tile in puz.iterate():
+        if tile == '@':
+            start_vec = vec
+            break
+
+    for dy in range(-1, 2):
+        for dx in range(-1, 2):
+            v = vec + (dx, dy)
+            if dx and dy:
+                grid[v.y][v.x] = '@'
+            else:
+                grid[v.y][v.x] = '#'
+
+    # We will split the grid into four. Remove doors for keys that are not in
+    # that sector, and solve each like normal, then add the results.
+    sub_grids = [
+        [row[:v.x] for row in grid[:v.y]],
+        [row[v.x - 1:] for row in grid[:v.y]],
+        [row[:v.x] for row in grid[v.y - 1:]],
+        [row[v.x - 1:] for row in grid[v.y - 1:]]
+    ]
+    total = 0
+    for grid in sub_grids:
+        puz = Puz(grid)
+        for vec, tile in puz.iterate():
+            if tile.isupper() and tile.lower() not in puz.all_keys:
+                puz.grid[vec.y][vec.x] = '.'
+        puz = Puz(grid)  # to reinitialise...
+        total += puz.min_path()
+    return total
 
 
 def main():
-    with open(filename) as f:
-        lines = f.read().splitlines()
-        lines = [l for l in lines if l]
-    grid = [list(line) for line in lines]
-    puz = Puz(grid)
-    solve_1(puz)
+    text = open('input.txt').read()
+    grid = [list(line) for line in text.splitlines()]
+    print(solve_1(grid))
+    print(solve_2(grid))
 
 
-main()
+if __name__ == "__main__":
+    main()
